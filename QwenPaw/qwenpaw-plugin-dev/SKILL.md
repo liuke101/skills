@@ -1,13 +1,13 @@
 ---
 name: qwenpaw-plugin-dev
-description: 创建 QwenPaw 插件或 PawApp 应用。覆盖：给 Agent 加工具（tool）、接入消息渠道（channel）、记忆后端（memory）、中间件、Provider、生命周期 Hook、斜杠命令、前端 UI 扩展，以及带独立前端页面与后端路由的 PawApp（type: app，App Center 应用）。当用户提到 QwenPaw 插件/扩展/PawApp/应用中心，或想给 QwenPaw agent 加功能时使用；开工前先让用户在 plugin 与 app 之间选择，明确两者边界。
+description: 创建 QwenPaw 插件或 PawApp 应用。覆盖：给 Agent 加工具（tool）、接入消息渠道（channel）、记忆后端（memory）、中间件、Provider、生命周期 Hook、斜杠命令、前端 UI 扩展，以及带独立前端页面与后端路由的 PawApp（type: app，App Center 应用）。也覆盖控制台前端界面定制：侧边栏菜单/页面、品牌 logo、隐藏按钮或菜单、聊天头像与欢迎页、设置菜单等。当用户提到 QwenPaw 插件/扩展/PawApp/应用中心，想给 QwenPaw agent 加功能，或想改 QwenPaw 的界面（侧边栏、顶栏、菜单、头像、主题元素）时使用；开工前先让用户在 plugin 与 app 之间选择，明确两者边界。
 ---
 
 # QwenPaw 插件 / PawApp 开发
 
 为 QwenPaw（github.com/agentscope-ai/QwenPaw）编写扩展。**所有扩展都是「插件」**：一个含 `plugin.json` 的目录，走同一条 PluginLoader 流水线（发现 manifest → 解析 → 版本兼容 → 安装 requirements.txt → 加载入口模块 → `register(api)`）。PawApp 只是这条流水线上的一种类型（`type: "app"`），多了一层 SDK 和 App Center 展示。
 
-> 本 Skill 依据 2026-09 的 QwenPaw main 分支（v2.2.x）整理。开工前自己先跑 `qwenpaw --version`（或 `pip show qwenpaw`；跑不了再问用户；QwenPaw 未安装则先按官方文档安装），旧版本可能缺少较新 API（如 PawApp SDK、`register_slash_command`）。manifest 的 `qwenpaw_version.min` 按用户实际版本填写。细节拿不准时查官方文档 https://qwenpaw.agentscope.io/docs/plugins ，或克隆源码看 `src/qwenpaw/plugins/api.py` 与 `src/qwenpaw/pawapp/`。
+> 本 Skill 依据 2026-09 的 QwenPaw main 分支（v2.2.x）整理，前端 UI 扩展部分另经 v2.2.1 上 6 个实战插件验证（详见 references/frontend-ui.md）。开工前自己先跑 `qwenpaw --version`（或 `pip show qwenpaw`；跑不了再问用户；QwenPaw 未安装则先按官方文档安装），旧版本可能缺少较新 API（如 PawApp SDK、`register_slash_command`）。manifest 的 `qwenpaw_version.min` 按用户实际版本填写。细节拿不准时查官方文档 https://qwenpaw.agentscope.io/docs/plugins ，或克隆源码看 `src/qwenpaw/plugins/api.py` 与 `src/qwenpaw/pawapp/`。
 
 ## 第一步（固定动作）：决策门 —— plugin 还是 app
 
@@ -115,7 +115,7 @@ plugin = MyPlugin()   # ← PluginLoader 找的就是这个变量（名字必须
 | 启动/关闭时执行代码 | 任意 | `api.register_startup_hook / register_shutdown_hook / register_uninstall_hook` |
 | `/斜杠命令` | 任意 | `api.register_slash_command(name, handler)`，handler: `async (ctx, args) -> Msg \| None` |
 | 补充 HTTP API | 任意 | `api.register_http_router(router, prefix="/xxx")` → 挂到 `/api/xxx`（prefix 全局唯一） |
-| 纯前端 UI 扩展 | `frontend` | 只有 `entry.frontend`；用 `window.QwenPaw.chat/menu/route/slot` 扩展点 |
+| 纯前端 UI 扩展 | `frontend` | 只有 `entry.frontend`；用 `window.QwenPaw.chat/menu/route/slot` 扩展点，**先读 [references/frontend-ui.md](references/frontend-ui.md)**（见下方路线 C） |
 
 工具函数写法要点（docstring 就是给 LLM 的说明）：类型注解 + 完整 docstring；配置用 `from qwenpaw.plugins import get_tool_config` 读取；重阻塞调用包 `asyncio.to_thread`；失败返回错误文本而不是抛异常。完整模板见 references。
 
@@ -219,6 +219,26 @@ plugin = app   # 兜底：PluginLoader 先找 plugin 再找 app，显式双写�
 
 装好后验证：控制台左侧 Apps → 卡片出现 → 点击进入 `/apps/my-app`。
 
+## 路线 C：前端界面定制（frontend 插件实战套路）
+
+改 QwenPaw 界面（侧边栏、顶栏、菜单、头像、欢迎页……）一律用 `type: "frontend"` 插件（无后端，只有 `entry.frontend`，IIFE 零构建）。**动手前必读 [references/frontend-ui.md](references/frontend-ui.md)**——那里有 menu/route/slot/chat 各扩展点的精确语义、选择器规则和 6 个实战套路。先记四条铁律：
+
+1. 宿主 antd `prefixCls="qwenpaw"`：真实 DOM 没有 `ant-*` 类，CSS 选择器必须前缀无关；`.anticon-*` 来自 @ant-design/icons 不受影响，可作判别。
+2. CSS module 类名保留局部名（`[name]__[local]__[hash]`）：用 `[class*="局部名"]` 定位宿主元素，配结构指纹防误伤。
+3. `window.QwenPaw.modules` 运行时为空——复用宿主页面组件用 `route.wrap` 截获（wrapper 幂等、原样返回 Inner，并留兜底跳转）。
+4. 插件脚本只在控制台启动时执行一次，SPA 会不断重挂载宿主节点——DOM 注入必须配 MutationObserver 幂等续命。
+
+需求 → 套路速查（详见 frontend-ui.md §2）：
+
+| 需求 | 关键调用 |
+|---|---|
+| 侧边栏加菜单项 + 页面 | `route.add` + `menu.add`（**菜单项 id = 路由 id**，否则高亮错位） |
+| 页面 = 复用宿主现有页面 | `route.wrap` 截获宿主组件 + 自己路由渲染 + 兜底跳转 |
+| 改左上角品牌词标 | `slot.replace("header.logo", render)`（返回 null 回退默认） |
+| 隐藏硬编码按钮/菜单项 | 注入 `<style>`（前缀无关选择器）/ 结构指纹 + 隐藏 |
+| 聊天头像、欢迎页、问候语 | `chat.welcome.set(pluginId, { avatar: SVG dataURL, ... })`（回复卡片同步生效） |
+| 齿轮设置菜单精简 | overlay 局部名锚点 + 指纹找面板 + 隐藏多余子元素 |
+
 ## 交付前检查清单
 
 - [ ] `qwenpaw plugin validate <dir>` 通过
@@ -242,9 +262,14 @@ plugin = app   # 兜底：PluginLoader 先找 plugin 再找 app，显式双写�
 11. PawApp 没有 WebSocket API，实时推送用 SSE（SDK 的 `SSEChannel` 或自建 `StreamingResponse`）。
 12. 前端把 react/react-dom 打进 bundle 会与宿主冲突——必须 external。
 13. `qwenpaw_version.min` 别照抄示例，按用户装的实际版本填。
+14. 宿主 antd `prefixCls="qwenpaw"`：真实 DOM 没有 `ant-layout-header`/`ant-btn` 这些类，CSS 选择器写 `ant-*` 全部落空（前端插件实测踩坑）；用 `[class*="..."]` + 原生标签，`.anticon-*` 不受 prefixCls 影响。
+15. `window.QwenPaw.modules` 运行时为空（注册函数无人调用）——别指望从里面复用宿主页面组件，用 `route.wrap` 截获。
+16. 侧边栏菜单项高亮要求**菜单项 id 与路由 id 相同**（选中态按路由 id 匹配菜单项 id）；不一致时点击后高亮落在别的项。
+17. 一次性 DOM 注入会被 SPA 重挂载吞掉（侧边栏折叠、Popover `destroyOnHidden` 每次打开都换新节点）——必须 MutationObserver + 幂等重建；对宿主元素设固定高度记得 `box-sizing:border-box`（content-box 下按测量值回写会持续漂移）。
 
 ## 深入参考（按需读）
 
+- [references/frontend-ui.md](references/frontend-ui.md) — 控制台前端 UI 扩展实战参考：menu/route/slot/chat 精确语义与高亮契约、选择器规则（prefixCls 坑）、侧边栏/设置菜单内部结构、DOM 注入生存策略、无宿主环境下的 mock 验证方法（**写任何 frontend 插件前通读**）
 - [references/manifest.md](references/manifest.md) — plugin.json 全部字段、type 推断、版本约束、meta 各用途（写/改 manifest 时读）
 - [references/plugin-types.md](references/plugin-types.md) — 各类型注册 API 完整签名 + 四个官方插件示例的代码模式（写 Plugin 时读对应小节）
 - [references/pawapp-sdk.md](references/pawapp-sdk.md) — PawApp SDK 全量参考 + 三个官方 app 示例架构 + 前端宿主 API（写 PawApp 前通读）
